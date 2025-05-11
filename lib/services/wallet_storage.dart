@@ -14,6 +14,17 @@ class WalletStorage {
 
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
   final Uuid _uuid = const Uuid();
+  
+  // Armazena a instância do SharedPreferences para acesso rápido
+  SharedPreferences? _prefsInstance;
+  
+  // Constructor que inicializa o SharedPreferences
+  WalletStorage() {
+    // Inicializa o SharedPreferences em background
+    SharedPreferences.getInstance().then((prefs) {
+      _prefsInstance = prefs;
+    });
+  }
 
   /// Gera uma chave de criptografia exclusiva para o dispositivo
   Future<String> _getOrCreateEncryptionKey() async {
@@ -156,6 +167,28 @@ class WalletStorage {
   Future<String?> getPrimaryWalletId() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_primaryWalletKey);
+  }
+
+  /// Obtém o ID da carteira primária (método síncrono)
+  String? getPrimaryWalletIdSync() {
+    try {
+      // Tenta obter de um campo em cache
+      final prefs = SharedPreferences.getInstance().then((instance) {
+        _prefsInstance = instance;
+        return instance;
+      });
+      
+      // Verifica se já temos a instância carregada
+      if (_prefsInstance != null) {
+        return _prefsInstance!.getString(_primaryWalletKey);
+      }
+      
+      // Caso não tenhamos ainda, retorna null e o app usará a primeira carteira
+      return null;
+    } catch (e) {
+      print('Erro ao obter ID da carteira primária de forma síncrona: $e');
+      return null;
+    }
   }
 
   /// Obtém a carteira primária

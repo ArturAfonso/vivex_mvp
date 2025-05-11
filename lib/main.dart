@@ -187,6 +187,39 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Método para atualizar o saldo de todas as carteiras em segundo plano
+  Future<void> _updateAllWalletsBalance() async {
+    if (_wallets.isEmpty) return;
+    
+    print('Iniciando atualização de saldo para todas as carteiras em segundo plano');
+    
+    // Pula a carteira principal que já foi atualizada
+    final otherWallets = _wallets.where((wallet) => wallet.id != _selectedWallet?.id).toList();
+    
+    if (otherWallets.isEmpty) {
+      print('Não há outras carteiras para atualizar');
+      return;
+    }
+    
+    // Atualiza as carteiras uma a uma sem bloqueio de UI
+    for (final wallet in otherWallets) {
+      try {
+        print('Atualizando saldo da carteira: ${wallet.name}');
+        await balanceService.updateWalletBalance(wallet);
+        
+        // Atualiza a UI se estiver visível
+        if (mounted) {
+          setState(() {}); // Força atualização da lista que exibe os saldos
+        }
+      } catch (e) {
+        print('Erro ao atualizar saldo da carteira ${wallet.name}: $e');
+        // Continua mesmo se houver erro em uma carteira específica
+      }
+    }
+    
+    print('Atualização de saldo em segundo plano concluída');
+  }
+
   // Método para carregar as carteiras do armazenamento
   Future<void> _loadWallets() async {
     setState(() {
@@ -206,20 +239,43 @@ class _HomeScreenState extends State<HomeScreen> {
         _wallets = filteredWallets;
         _isLoading = false;
 
-        // Se existir ao menos uma carteira compatível com a rede atual, seleciona a primeira para mostrar
+        // Se existir ao menos uma carteira compatível com a rede atual
         if (_wallets.isNotEmpty) {
+          // Busca o ID da carteira primária
+          String? primaryWalletId;
+          
+          // Método assíncrono mais confiável para obter o ID da carteira primária
+          _walletStorage.getPrimaryWalletId().then((id) {
+            if (id != null && mounted) {
+              // Busca a carteira primária na lista de carteiras filtradas
+              final primaryWallet = _wallets.firstWhere(
+                (wallet) => wallet.id == id,
+                orElse: () => _wallets.first
+              );
+              
+              if (mounted) {
+                setState(() {
+                  _selectedWallet = primaryWallet;
+                  _updateWalletBalance().then((_) {
+                    // Após atualizar a carteira principal, atualiza as demais em segundo plano
+                    _updateAllWalletsBalance();
+                  });
+                });
+              }
+            }
+          });
+          
+          // Enquanto aguarda a busca assíncrona, seleciona a primeira carteira para exibição imediata
           _selectedWallet = _wallets.first;
-
-          // Verifica se já existe um saldo armazenado no BalanceService
+          
+          // Verifica se já existe um saldo armazenado no BalanceService para a carteira atual
           final cachedBalance = balanceService.getBalance(_selectedWallet!.id);
           final cachedRate = balanceService.getBtcToBrlRate();
 
           // Se já existir um saldo armazenado, usa-o imediatamente
           if (cachedBalance > 0) {
-            setState(() {
-              _bitcoinAmount = cachedBalance;
-              _btcToBrlRate = cachedRate;
-            });
+            _bitcoinAmount = cachedBalance;
+            _btcToBrlRate = cachedRate;
           }
 
           // Inicia a atualização do saldo em background

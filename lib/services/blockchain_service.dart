@@ -54,10 +54,14 @@ class BlockchainService {
       }
 
       print('Tentando obter saldo com mnemônica diretamente');
+      print('Carteira: ${wallet.name}, ID: ${wallet.id}');
+      print('Rede: ${_network == Network.testnet ? 'Testnet' : 'Mainnet'}');
+      print('Endereços: ${wallet.addresses.join(', ')}');
 
       try {
         // 1. Criar uma frase mnemônica a partir da string existente
         final mnemonic = await Mnemonic.fromString(wallet.mnemonic);
+        print('Mnemônica carregada com sucesso');
 
         // 2. Criar chave secreta usando a mnemônica
         final descriptorSecretKey = await DescriptorSecretKey.create(
@@ -65,6 +69,7 @@ class BlockchainService {
           mnemonic: mnemonic,
           password: wallet.hasPassphrase && wallet.passphrase != null ? wallet.passphrase : '',
         );
+        print('Chave secreta criada com sucesso');
 
         // 3. Determinar o tipo de carteira e criar os descritores apropriados
         Descriptor descriptor;
@@ -73,6 +78,8 @@ class BlockchainService {
 
         switch (wallet.walletType.toLowerCase()) {
           case 'native segwit':
+          case 'native segwit (bip-84, endereços bc1 ou tb1)':
+            print('Usando BIP-84 (Native SegWit)');
             // BIP84 (Native SegWit)
             descriptor = await Descriptor.newBip84(
               secretKey: descriptorSecretKey,
@@ -87,6 +94,9 @@ class BlockchainService {
             break;
 
           case 'segwit':
+          case 'segwit compatible':
+          case 'segwit compatível (bip-49, endereços 3)':
+            print('Usando BIP-49 (SegWit Compatível)');
             // BIP49 (SegWit)
             descriptor = await Descriptor.newBip49(
               secretKey: descriptorSecretKey,
@@ -101,6 +111,8 @@ class BlockchainService {
             break;
 
           case 'legacy':
+          case 'legacy (bip-44, endereços 1)':
+            print('Usando BIP-44 (Legacy)');
             // BIP44 (Legacy)
             descriptor = await Descriptor.newBip44(
               secretKey: descriptorSecretKey,
@@ -115,6 +127,7 @@ class BlockchainService {
             break;
 
           default:
+            print('Tipo de carteira não reconhecido, usando BIP-84 como padrão');
             // Por padrão, assumimos BIP84 (Native SegWit)
             descriptor = await Descriptor.newBip84(
               secretKey: descriptorSecretKey,
@@ -137,24 +150,26 @@ class BlockchainService {
           databaseConfig: const DatabaseConfig.memory(),
         );
 
-        // 5. Configurar a conexão com um nó blockchain (Esplora)
-        print('Criando conexão com blockchain');
+        // 5. Configurar a conexão com um nó blockchain (usando Electrum em vez de Esplora)
+        print('Criando conexão com blockchain via Electrum');
         final blockchain = await Blockchain.create(
-          config: BlockchainConfig.esplora(
-            config: EsploraConfig(
-              baseUrl: _network == Network.testnet ? 'https://mempool.space/testnet/api' : 'https://mempool.space/api',
-              stopGap: BigInt.from(10),
-            ),
-          ),
+          config: _blockchainConfig,
         );
 
         // 6. Sincronizar a carteira com a blockchain
         print('Sincronizando carteira com a blockchain');
-        await bdkWallet.sync(blockchain: blockchain);
+        try {
+          await bdkWallet.sync(blockchain: blockchain);
+          print('Sincronização concluída com sucesso');
+        } catch (syncError) {
+          print('Erro ao sincronizar carteira: $syncError');
+          rethrow;
+        }
 
         // 7. Obter o saldo
         print('Consultando saldo');
         final balance = bdkWallet.getBalance();
+        print('Saldo bruto: ${balance.total} satoshis');
 
         // 8. Converter de satoshis para BTC
         final btcBalance = balance.total / BigInt.from(100000000);
@@ -164,11 +179,13 @@ class BlockchainService {
       } catch (bdkError) {
         print('Erro ao usar a abordagem BDK com mnemônica: $bdkError');
         // Se falhar na criação da carteira via BDK, tenta o método alternativo
+        print('Tentando método alternativo via APIs');
         return await _getBalanceFromMultipleApis(wallet.addresses);
       }
     } catch (e) {
       print('Erro ao consultar saldo via BDK: $e');
       // Se falhar usando BDK, tenta o método de API como backup
+      print('Tentando APIs como fallback final');
       return await _getBalanceFromMultipleApis(wallet.addresses);
     }
   }
@@ -204,74 +221,54 @@ class BlockchainService {
   }
 
   // Método de backup aprimorado que tenta várias APIs para maior confiabilidade
-  // Temporariamente comentado para forçar o uso apenas da API bdk_flutter
   Future<double> _getBalanceFromMultipleApis(List<String> addresses) async {
-    // MÉTODO DESATIVADO PARA TESTES DE PERFORMANCE DA API BDK_FLUTTER
-    // Retorna zero para forçar o fallback para o método BDK quando possível
-    return 0.0;
-
-    /*
+    // Reativando o método para funcionar como fallback
     if (addresses.isEmpty) {
+      print('Lista de endereços vazia, retornando saldo zero');
       return 0.0;
     }
 
+    print('Tentando consultar saldo via APIs externas para ${addresses.length} endereço(s)');
     List<String> errors = [];
 
-    // Tentativa 1: Blockchain.info
+    // Tentativa 1: BlockCypher
     try {
-      final String addressesString = addresses.join('|');
-      final response = await http.get(Uri.parse('https://blockchain.info/balance?active=$addressesString'),
-          headers: {'User-Agent': 'VivexWallet/1.0'});
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> data = json.decode(response.body);
-
-        double totalBalanceSatoshi = 0;
-        for (var address in addresses) {
-          if (data.containsKey(address)) {
-            totalBalanceSatoshi += (data[address]['final_balance'] as num).toDouble();
-          }
-        }
-
-        return totalBalanceSatoshi / 100000000;
-      } else {
-        errors.add('Blockchain.info API falhou: ${response.statusCode}');
-      }
-    } catch (e) {
-      errors.add('Erro ao consultar Blockchain.info: $e');
-    }
-
-    // Tentativa 2: BlockCypher
-    try {
+      print('Tentando BlockCypher...');
       double totalBalance = 0.0;
-      final String network = _network == Network.bitcoin ? 'main' : 'test3';
+      final String network = _network == Network.testnet ? 'test3' : 'main';
 
       for (var address in addresses) {
-        final response = await http.get(Uri.parse('https://api.blockcypher.com/v1/btc/$network/addrs/$address/balance'),
+        final response = await http.get(
+            Uri.parse('https://api.blockcypher.com/v1/btc/$network/addrs/$address/balance'),
             headers: {'User-Agent': 'VivexWallet/1.0'});
 
         if (response.statusCode == 200) {
           final data = json.decode(response.body);
           if (data.containsKey('balance')) {
-            totalBalance += (data['balance'] as num).toDouble() / 100000000;
+            final balance = (data['balance'] as num).toDouble() / 100000000;
+            print('Saldo para endereço $address: $balance BTC (via BlockCypher)');
+            totalBalance += balance;
           }
         }
       }
 
-      if (totalBalance > 0 || addresses.length == 1) {
+      if (totalBalance > 0) {
+        print('Saldo total obtido via BlockCypher: $totalBalance BTC');
         return totalBalance;
       } else {
-        errors.add('BlockCypher retornou saldo zero para múltiplos endereços');
+        errors.add('BlockCypher retornou saldo zero');
       }
     } catch (e) {
       errors.add('Erro ao consultar BlockCypher: $e');
+      print('Falha ao usar BlockCypher: $e');
     }
 
-    // Tentativa 3: Mempool.space
+    // Tentativa 2: Mempool.space
     try {
+      print('Tentando Mempool.space...');
       double totalBalance = 0.0;
       final String baseUrl =
-          _network == Network.bitcoin ? 'https://mempool.space/api' : 'https://mempool.space/testnet/api';
+          _network == Network.testnet ? 'https://mempool.space/testnet/api' : 'https://mempool.space/api';
 
       for (var address in addresses) {
         final response =
@@ -282,72 +279,27 @@ class BlockchainService {
           if (data.containsKey('chain_stats') && data['chain_stats'].containsKey('funded_txo_sum')) {
             final funded = (data['chain_stats']['funded_txo_sum'] as num).toDouble();
             final spent = (data['chain_stats']['spent_txo_sum'] as num).toDouble();
-            totalBalance += (funded - spent) / 100000000;
+            final balance = (funded - spent) / 100000000;
+            print('Saldo para endereço $address: $balance BTC (via Mempool.space)');
+            totalBalance += balance;
           }
         }
       }
 
-      if (totalBalance > 0 || addresses.length == 1) {
+      if (totalBalance > 0) {
+        print('Saldo total obtido via Mempool.space: $totalBalance BTC');
         return totalBalance;
       } else {
-        errors.add('Mempool.space retornou saldo zero para múltiplos endereços');
+        errors.add('Mempool.space retornou saldo zero');
       }
     } catch (e) {
       errors.add('Erro ao consultar Mempool.space: $e');
+      print('Falha ao usar Mempool.space: $e');
     }
 
     // Se chegarmos aqui, todas as tentativas falharam
     print('Todas as APIs falharam ao consultar saldo. Erros: ${errors.join(', ')}');
-
-    // Última alternativa: verificar cada endereço individualmente usando qualquer API que funcione
-    try {
-      double totalBalance = 0.0;
-      for (var address in addresses) {
-        try {
-          // Tenta o BlockCypher para cada endereço individual
-          final String network = _network == Network.bitcoin ? 'main' : 'test3';
-          final response = await http.get(
-              Uri.parse('https://api.blockcypher.com/v1/btc/$network/addrs/$address/balance'),
-              headers: {'User-Agent': 'VivexWallet/1.0'});
-
-          if (response.statusCode == 200) {
-            final data = json.decode(response.body);
-            if (data.containsKey('balance')) {
-              totalBalance += (data['balance'] as num).toDouble() / 100000000;
-              continue; // Se conseguiu, passa para o próximo endereço
-            }
-          }
-        } catch (_) {
-          // Ignora e tenta próxima API
-        }
-
-        try {
-          // Se BlockCypher falhou, tenta Mempool.space
-          final String baseUrl =
-              _network == Network.bitcoin ? 'https://mempool.space/api' : 'https://mempool.space/testnet/api';
-          final response =
-              await http.get(Uri.parse('$baseUrl/address/$address'), headers: {'User-Agent': 'VivexWallet/1.0'});
-
-          if (response.statusCode == 200) {
-            final data = json.decode(response.body);
-            if (data.containsKey('chain_stats')) {
-              final funded = (data['chain_stats']['funded_txo_sum'] as num).toDouble();
-              final spent = (data['chain_stats']['spent_txo_sum'] as num).toDouble();
-              totalBalance += (funded - spent) / 100000000;
-            }
-          }
-        } catch (_) {
-          // Ignora e continua para o próximo endereço
-        }
-      }
-
-      return totalBalance;
-    } catch (e) {
-      // Se tudo falhar, retorna zero
-      print('Falha final ao tentar consultar saldo: $e');
-      return 0.0;
-    }
-    */
+    return 0.0;
   }
 
   // Método para enviar bitcoins usando a BDK
