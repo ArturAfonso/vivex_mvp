@@ -330,18 +330,21 @@ class _CreateWalletScreenState extends State<CreateWalletScreen> {
   // Método para atualizar o derivation path com base no tipo de carteira selecionado
   void _updateDerivationPath() {
     setState(() {
+      // Determinar o componente da rede (0h para mainnet, 1h para testnet)
+      String networkComponent = appConfig.networkType == Network.testnet ? "1h" : "0h";
+      
       switch (_walletAddressType) {
         case 'native_segwit':
-          _derivationPath = "m/84h/1h/0h"; // BIP-84 para testnet
+          _derivationPath = "m/84h/$networkComponent/0h"; // BIP-84
           break;
         case 'segwit_compatible':
-          _derivationPath = "m/49h/1h/0h"; // BIP-49 para testnet
+          _derivationPath = "m/49h/$networkComponent/0h"; // BIP-49
           break;
         case 'legacy':
-          _derivationPath = "m/44h/1h/0h"; // BIP-44 para testnet
+          _derivationPath = "m/44h/$networkComponent/0h"; // BIP-44
           break;
         default:
-          _derivationPath = "m/84h/1h/0h"; // Padrão: BIP-84 para testnet
+          _derivationPath = "m/84h/$networkComponent/0h"; // Padrão: BIP-84
       }
     });
   }
