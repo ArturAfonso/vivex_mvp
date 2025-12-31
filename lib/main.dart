@@ -2,6 +2,7 @@ import 'package:bdk_flutter/bdk_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:vivex_mvp/config/app_config.dart';
+import 'package:vivex_mvp/screens/receive_bitcoin_screen.dart';
 import 'package:vivex_mvp/screens/wallet_details_screen.dart';
 import 'package:vivex_mvp/services/blockchain_service.dart';
 import 'widgets/response_container.dart';
@@ -574,10 +575,23 @@ class _HomeScreenState extends State<HomeScreen> {
                         icon: Icons.qr_code,
                         label: 'Receber',
                         onTap: () {
-                          // Implementar a função de recebimento posteriormente
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Função de recebimento será implementada em breve!'),
+                          // Verificar se existe uma carteira selecionada
+                          if (_selectedWallet == null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Selecione uma carteira primeiro!'),
+                              ),
+                            );
+                            return;
+                          }
+
+                          // Navegar para a tela de recebimento de bitcoins
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ReceiveBitcoinScreen(
+                                wallet: _selectedWallet!,
+                              ),
                             ),
                           );
                         },

@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/bitcoin_wallet.dart';
 import '../services/blockchain_service.dart';
 import '../config/service_locator.dart';
+import 'qr_scanner_screen.dart';
 
 class SendBitcoinScreen extends StatefulWidget {
   final BitcoinWallet wallet;
@@ -362,6 +363,33 @@ class _SendBitcoinScreenState extends State<SendBitcoinScreen> {
                   hintText: 'Ex: tb1q...',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
+                  ),
+                  prefixIcon: Container(
+                    margin: const EdgeInsets.only(left: 8),
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.qr_code_scanner,
+                        color: Colors.blue,
+                        size: 28,
+                      ),
+                      onPressed: () async {
+                        // Navegar para a tela de escaneamento de QR code
+                        final scannedAddress = await Navigator.push<String>(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const QrScannerScreen(),
+                          ),
+                        );
+
+                        // Se um endereço foi escaneado com sucesso, preencher o campo
+                        if (scannedAddress != null && mounted) {
+                          setState(() {
+                            _addressController.text = scannedAddress;
+                          });
+                        }
+                      },
+                      tooltip: 'Escanear QR Code',
+                    ),
                   ),
                   suffixIcon: IconButton(
                     icon: const Icon(Icons.paste),
